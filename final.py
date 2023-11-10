@@ -68,7 +68,6 @@ def format_constraints(constraints):
             formatted_constraints.append(
                 f"{duration} <= t(x{task_j}) - t(x{task_i}) <= {duration}"
             )
-
     return formatted_constraints
 
 
@@ -144,8 +143,39 @@ def time_conversion(hour, start_hour):
         return f"{adjusted_hour - 12} PM"
 
 
+def adjust_constraints(
+    constraints, task_to_change, new_start_time, num_tasks, start_hour, end_hour
+):
+    """
+    Adjusts the constraints when a task's start time is changed by the user.
+    Only the constraints for the tasks that come after the fixed task are updated.
+    """
+    new_start_hour = convert_to_24_hour_format(new_start_time) - start_hour
+    new_constraints = []
+
+    for i, (task_i, task_j, duration) in enumerate(constraints):
+        if task_i == task_to_change - 1:
+            new_constraints.append(
+                (task_i, task_j, range(new_start_hour, new_start_hour + 1))
+            )
+        elif task_i < task_to_change - 1:
+            new_constraints.append(constraints[i])
+        else:  # This part ensures that all subsequent tasks are also updated
+            new_constraints.append((task_i, task_j, duration))
+
+    # This adds the global constraint back into the constraints list
+    new_constraints.append((0, num_tasks, range(0, end_hour - start_hour + 1)))
+
+    return new_constraints
+
+
+# This is the corrected adjust_constraints function
+# Now I will integrate this function back into the main program and run it to ensure it works correctly.
+
+
 def main():
     constraints, num_tasks = get_user_input()
+    last_updated_task = 0
     while True:
         start_time_str = input(
             "Enter the hour you want to start your day (e.g., '5 am'): "
@@ -174,20 +204,158 @@ def main():
         print(constraint)
 
     G = build_graph(constraints, num_tasks, start_hour, end_hour)
+
+    # Run Bellman-Ford for earliest start times
     G_earliest = G.reverse(copy=True)
-
-    print_graph(G)
-
-    result = bellman_ford(G_earliest, "x0")
-    if result is None:
-        print("Negative cycle detected for latest start times. No solution exists.")
+    print("\nCalculating earliest start times...")
+    result_earliest = bellman_ford(G_earliest, "x0")
+    if result_earliest == (None, None):
+        print("Negative cycle detected for earliest start times. No solution exists.")
+        return 0
     else:
-        distances_earliest, _ = result
-        print("\nEarliest start times:")
-        for node in sorted(distances_earliest.keys(), key=lambda x: (len(x), x)):
-            if node == "x0":
-                continue
-            print(f"{node}: {time_conversion(-distances_earliest[node], start_hour)}")
+        distances_earliest, _ = result_earliest
+
+    # Run Bellman-Ford for latest start times
+    print("\nCalculating latest start times...")
+    result_latest = bellman_ford(G, "x0")
+    if result_latest == (None, None):
+        print("Negative cycle detected for latest start times. No solution exists.")
+        return 0
+    else:
+        distances_latest, _ = result_latest
+
+    # Display schedules
+    print("\nEarliest start times:")
+    for node in sorted(distances_earliest.keys(), key=lambda x: (len(x), x)):
+        if node == "x0":
+            continue
+        print(f"{node}: {time_conversion(-distances_earliest[node], start_hour)}")
+
+    print("\nLatest start times:")
+    for node in sorted(distances_latest.keys(), key=lambda x: (len(x), x)):
+        if node == "x0":
+            continue
+        print(f"{node}: {time_conversion(distances_latest[node], start_hour)}")
+
+    original_earliest_times = {
+        node: -distances_earliest[node] for node in distances_earliest
+    }
+    original_latest_times = {node: distances_latest[node] for node in distances_latest}
+
+    # Ask if the user wants to change anything
+    while True:
+        change_schedule = (
+            input("Would you like to change any task in the schedule? (yes/no): ")
+            .strip()
+            .lower()
+        )
+
+        if change_schedule == "no":
+            break  # Exit the loop if the user doesn't want to change the schedule
+
+        # Display the range of start times for each task that can be changed
+        print("\nYou can change the start times of the following tasks:")
+        for i in range(last_updated_task + 1, num_tasks + 1):
+            task = f"x{i}"
+            if task in original_earliest_times and task in original_latest_times:
+                earliest_start = time_conversion(
+                    original_earliest_times[task], start_hour
+                )
+                latest_start = time_conversion(original_latest_times[task], start_hour)
+                print(
+                    f"Task {i}: Earliest start time: {earliest_start}, Latest start time: {latest_start}"
+                )
+
+        # Ask which task to change, ensuring it's not a completed task
+        task_to_change = int(
+            input("Which task number do you want to change? (Enter the task number): ")
+        )
+        if task_to_change <= last_updated_task:
+            print(
+                f"Task {task_to_change} has already been started or completed and cannot be changed."
+            )
+            continue
+        # Ask which task to change, ensuring it's not a completed task
+        # task_to_change = int(
+        #     input("Which task number do you want to change? (Enter the task number): ")
+        # )
+        # if task_to_change <= last_updated_task:
+        #     print(
+        #         f"You cannot change the start time of Task {task_to_change} as it has been assumed completed."
+        #     )
+        #     continue
+
+        # Update the last updated task
+        last_updated_task = task_to_change
+
+        # Ask for a new time within this range
+        new_time_str = input(
+            f"Enter the new start time for Task {task_to_change} (within the range above): "
+        )
+
+        # Since the start time for a task has changed, we need to update the constraints and graph
+        constraints = adjust_constraints(
+            constraints, task_to_change, new_time_str, num_tasks, start_hour, end_hour
+        )
+        updated_task_index = task_to_change - 1
+        # Rebuild the graph with updated constraints for the uncompleted tasks
+
+        G_updated = build_graph(
+            constraints[
+                updated_task_index:
+            ],  # Only use constraints from updated tasks onwards
+            num_tasks - updated_task_index,  # Adjust the number of tasks accordingly
+            start_hour,
+            end_hour,
+        )
+        # Run Bellman-Ford from the updated task considered as the new 'x0'
+        print(
+            "\nRecalculating times for subsequent tasks starting from the updated task..."
+        )
+        result_earliest_updated = bellman_ford(
+            G_updated.reverse(copy=True), f"x{updated_task_index}"
+        )
+        result_latest_updated = bellman_ford(G_updated, f"x{updated_task_index}")
+
+        # Check for negative cycles in the updated graph
+        if result_earliest_updated[0] is None or result_latest_updated[0] is None:
+            print(
+                "Negative cycle detected after updating the task. No solution exists."
+            )
+            return 0
+
+        distances_earliest_updated, _ = result_earliest_updated
+        distances_latest_updated, _ = result_latest_updated
+
+        original_earliest_times = {
+            node: -dist
+            for node, dist in result_earliest_updated[0].items()
+            if node != "x0"
+        }
+        original_latest_times = {
+            node: dist
+            for node, dist in result_latest_updated[0].items()
+            if node != "x0"
+        }
+
+        print(original_earliest_times)
+        print(original_latest_times)
+
+        print("\nUpdated Earliest start times:")
+        for i in range(last_updated_task, num_tasks + 1):
+            node = f"x{i}"
+            print(
+                f"{node}: {time_conversion(original_earliest_times.get(node, 'Unavailable'), start_hour)}"
+            )
+
+        print("\nUpdated Latest start times:")
+        for i in range(last_updated_task, num_tasks + 1):
+            node = f"x{i}"
+            print(
+                f"{node}: {time_conversion(original_latest_times.get(node, 'Unavailable'), start_hour)}"
+            )
+
+        print("Schedule update complete.")
 
 
 if __name__ == "__main__":
