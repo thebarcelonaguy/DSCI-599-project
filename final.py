@@ -297,6 +297,7 @@ def main():
         constraints = adjust_constraints(
             constraints, task_to_change, new_time_str, num_tasks, start_hour, end_hour
         )
+        print(format_constraints(constraints))
         updated_task_index = task_to_change - 1
         # Rebuild the graph with updated constraints for the uncompleted tasks
 
@@ -337,9 +338,6 @@ def main():
             for node, dist in result_latest_updated[0].items()
             if node != "x0"
         }
-
-        print(original_earliest_times)
-        print(original_latest_times)
 
         print("\nUpdated Earliest start times:")
         for i in range(last_updated_task, num_tasks + 1):
