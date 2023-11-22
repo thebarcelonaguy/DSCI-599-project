@@ -264,6 +264,9 @@ def main():
     }
     original_latest_times = {node: distances_latest[node] for node in distances_latest}
 
+    print("RITEN IS A GOOD BOY", original_earliest_times)
+    print("MESSSSSSSSi", original_latest_times)
+
     # Ask if the user wants to change anything
     while True:
         change_schedule = (
@@ -277,15 +280,20 @@ def main():
 
         # Display the range of start times for each task that can be changed
         print("\nYou can change the start times of the following tasks:")
-        for i in range(last_updated_task + 1, num_tasks + 1):
-            task = f"x{i}"
-            if task in original_earliest_times and task in original_latest_times:
+        for i in range(1, num_tasks - last_updated_task + 1):
+            task_key = f"x{i}"
+            if (
+                task_key in original_earliest_times
+                and task_key in original_latest_times
+            ):
                 earliest_start = time_conversion(
-                    original_earliest_times[task], start_hour
+                    original_earliest_times[task_key], start_hour
                 )
-                latest_start = time_conversion(original_latest_times[task], start_hour)
+                latest_start = time_conversion(
+                    original_latest_times[task_key], start_hour
+                )
                 print(
-                    f"Task {i}: Earliest start time: {earliest_start}, Latest start time: {latest_start}"
+                    f"Task {i + last_updated_task}: Earliest start time: {earliest_start}, Latest start time: {latest_start}"
                 )
 
         # Ask which task to change, ensuring it's not a completed task
@@ -297,15 +305,6 @@ def main():
                 f"Task {task_to_change} has already been started or completed and cannot be changed."
             )
             continue
-        # Ask which task to change, ensuring it's not a completed task
-        # task_to_change = int(
-        #     input("Which task number do you want to change? (Enter the task number): ")
-        # )
-        # if task_to_change <= last_updated_task:
-        #     print(
-        #         f"You cannot change the start time of Task {task_to_change} as it has been assumed completed."
-        #     )
-        #     continue
 
         # Update the last updated task
         last_updated_task = task_to_change
@@ -341,6 +340,28 @@ def main():
 
         result_latest_updated = bellman_ford(G_updated, "x0")
 
+        print(result_earliest_updated)
+        print(result_latest_updated)
+
+        if (
+            result_earliest_updated[0] is not None
+            and result_latest_updated[0] is not None
+        ):
+            original_earliest_times = {
+                f"x{i - last_updated_task+1}": dist
+                for i, dist in enumerate(
+                    result_earliest_updated[0].values(), start=last_updated_task + 1
+                )
+            }
+            original_latest_times = {
+                f"x{i - last_updated_task+1}": dist
+                for i, dist in enumerate(
+                    result_latest_updated[0].values(), start=last_updated_task + 1
+                )
+            }
+
+        print("hi", original_earliest_times)
+        print("bvye", original_latest_times)
         # Check for negative cycles in the updated graph
         if result_earliest_updated[0] is None or result_latest_updated[0] is None:
             print(
