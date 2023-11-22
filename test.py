@@ -151,21 +151,23 @@ def adjust_constraints(
     Only the constraints for the tasks that come after the fixed task are updated.
     """
 
-    new_start_hour = convert_to_24_hour_format(new_start_time) - start_hour
+    new_start_hour = convert_to_24_hour_format(new_start_time)
+    updated_task_index = task_to_change
     new_constraints = []
 
+    # Adjust constraints for the remaining tasks relative to the updated task
     for i, (task_i, task_j, duration) in enumerate(constraints):
-        if task_i == task_to_change - 1:
-            new_constraints.append(
-                (task_i, task_j, range(new_start_hour, new_start_hour + 1))
-            )
-        elif task_i < task_to_change - 1:
-            new_constraints.append(constraints[i])
-        else:  # This part ensures that all subsequent tasks are also updated
-            new_constraints.append((task_i, task_j, duration))
+        if task_i >= updated_task_index:
+            # Reindex the tasks relative to the updated task
+            new_task_i = task_i - updated_task_index
+            new_task_j = task_j - updated_task_index
+            new_constraints.append((new_task_i, new_task_j, duration))
 
-    # This adds the global constraint back into the constraints list
-    new_constraints.append((0, num_tasks, range(0, end_hour - start_hour + 1)))
+    # Adjust the global constraint for the end of the day based on the new start time
+    remaining_hours = end_hour - new_start_hour
+    new_constraints.insert(
+        0, (0, num_tasks - updated_task_index, range(0, remaining_hours + 1))
+    )
 
     return new_constraints
 
@@ -312,19 +314,19 @@ def main():
         new_time_str = input(
             f"Enter the new start time for Task {task_to_change} (within the range above): "
         )
+        new_time_hour = convert_to_24_hour_format(new_time_str)
 
         # Since the start time for a task has changed, we need to update the constraints and graph
         constraints = adjust_constraints(
             constraints, task_to_change, new_time_str, num_tasks, start_hour, end_hour
         )
-        print(format_constraints(constraints))
-        updated_task_index = task_to_change - 1
+        for c in constraints:
+            print(format_constraints([c]))
+        updated_task_index = task_to_change
         # Rebuild the graph with updated constraints for the uncompleted tasks
 
         G_updated = build_graph(
-            constraints[
-                updated_task_index:
-            ],  # Only use constraints from updated tasks onwards
+            constraints,  # Only use constraints from updated tasks onwards
             num_tasks - updated_task_index,  # Adjust the number of tasks accordingly
             start_hour,
             end_hour,
@@ -334,10 +336,10 @@ def main():
         print(
             "\nRecalculating times for subsequent tasks starting from the updated task..."
         )
-        result_earliest_updated = bellman_ford(
-            G_updated.reverse(copy=True), f"x{updated_task_index}"
-        )
-        result_latest_updated = bellman_ford(G_updated, f"x{updated_task_index}")
+
+        result_earliest_updated = bellman_ford(G_updated.reverse(copy=True), "x0")
+
+        result_latest_updated = bellman_ford(G_updated, "x0")
 
         # Check for negative cycles in the updated graph
         if result_earliest_updated[0] is None or result_latest_updated[0] is None:
@@ -346,36 +348,38 @@ def main():
             )
             return 0
 
-        # distances_earliest_updated, _ = result_earliest_updated
-        # distances_latest_updated, _ = result_latest_updated
-
-        original_earliest_times = {
-            node: -dist
-            for node, dist in result_earliest_updated[0].items()
-            if node != "x0"
-        }
-        original_latest_times = {
-            node: dist
-            for node, dist in result_latest_updated[0].items()
-            if node != "x0"
-        }
-        print("original laest", original_latest_times)
-        print("original earliest", original_earliest_times)
-        print("\nUpdated Earliest start times:")
-        for i in range(last_updated_task, num_tasks + 1):
-            node = f"x{i}"
+        if result_earliest_updated == (None, None):
             print(
-                f"{node}: {time_conversion(original_earliest_times.get(node, 'Unavailable'), start_hour)}"
+                "Negative cycle detected for earliest start times. No solution exists."
+            )
+            return 0
+        else:
+            distances_earliest_updated, _ = result_earliest_updated
+
+        print("\nEarliest start times:")
+        for node in sorted(
+            distances_earliest_updated.keys(), key=lambda x: (len(x), x)
+        ):
+            if node == "x0":
+                continue
+            print(
+                f"{node}: {time_conversion(-distances_earliest_updated[node], new_time_hour)}"
             )
 
-        print("\nUpdated Latest start times:")
-        for i in range(last_updated_task, num_tasks + 1):
-            node = f"x{i}"
-            print(
-                f"{node}: {time_conversion(original_latest_times.get(node, 'Unavailable'), start_hour)}"
-            )
+        print("\nCalculating latest start times...")
+        if result_latest_updated == (None, None):
+            print("Negative cycle detected for latest start times. No solution exists.")
+            return 0
+        else:
+            distances_latest_updated, _ = result_latest_updated
 
-        print("Schedule update complete.")
+        print("\nLatest start times:")
+        for node in sorted(distances_latest_updated.keys(), key=lambda x: (len(x), x)):
+            if node == "x0":
+                continue
+            print(
+                f"{node}: {time_conversion(distances_latest_updated[node], new_time_hour)}"
+            )
 
 
 if __name__ == "__main__":

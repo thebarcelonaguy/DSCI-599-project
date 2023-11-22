@@ -147,25 +147,30 @@ def adjust_constraints(
     constraints, task_to_change, new_start_time, num_tasks, start_hour, end_hour
 ):
     """
-    Adjusts the constraints when a task's start time is changed by the user.
-    Only the constraints for the tasks that come after the fixed task are updated.
+    Adjusts the constraints when a task's start time is changed.
+    The task that is updated becomes the new 'x0', and subsequent tasks are renumbered.
     """
-
+    # Convert the new start time to hours from the start of the day
     new_start_hour = convert_to_24_hour_format(new_start_time) - start_hour
+
+    # Initialize the new constraints list
     new_constraints = []
 
-    for i, (task_i, task_j, duration) in enumerate(constraints):
-        if task_i == task_to_change - 1:
-            new_constraints.append(
-                (task_i, task_j, range(new_start_hour, new_start_hour + 1))
-            )
-        elif task_i < task_to_change - 1:
-            new_constraints.append(constraints[i])
-        else:  # This part ensures that all subsequent tasks are also updated
-            new_constraints.append((task_i, task_j, duration))
+    # Iterate over the existing constraints
+    for task_i, task_j, duration in constraints:
+        if task_i >= task_to_change and task_j > task_to_change:
+            # Adjust the task numbers and add to the new constraints list
+            new_task_i = task_i - task_to_change
+            new_task_j = task_j - task_to_change
+            new_constraints.append((new_task_i, new_task_j, duration))
 
-    # This adds the global constraint back into the constraints list
-    new_constraints.append((0, num_tasks, range(0, end_hour - start_hour + 1)))
+    # Add the constraint for the updated task (now the new 'x0')
+    new_constraints.insert(0, (0, 1, range(new_start_hour, new_start_hour + 1)))
+
+    # Add the global constraint for the project duration
+    new_constraints.append(
+        (0, num_tasks - task_to_change, range(0, end_hour - start_hour + 1))
+    )
 
     return new_constraints
 
@@ -225,7 +230,6 @@ def main():
         return 0
     else:
         distances_latest, _ = result_latest
-
     print("\nTotal Duration of Shortest Paths for Earliest Start Times:")
     distances_earliest, _ = result_earliest
     for node in sorted(distances_earliest.keys(), key=lambda x: (len(x), x)):
@@ -317,10 +321,8 @@ def main():
         constraints = adjust_constraints(
             constraints, task_to_change, new_time_str, num_tasks, start_hour, end_hour
         )
-        print(format_constraints(constraints))
         updated_task_index = task_to_change - 1
         # Rebuild the graph with updated constraints for the uncompleted tasks
-
         G_updated = build_graph(
             constraints[
                 updated_task_index:
@@ -329,7 +331,6 @@ def main():
             start_hour,
             end_hour,
         )
-        print(print_graph(G_updated))
         # Run Bellman-Ford from the updated task considered as the new 'x0'
         print(
             "\nRecalculating times for subsequent tasks starting from the updated task..."
@@ -359,8 +360,7 @@ def main():
             for node, dist in result_latest_updated[0].items()
             if node != "x0"
         }
-        print("original laest", original_latest_times)
-        print("original earliest", original_earliest_times)
+
         print("\nUpdated Earliest start times:")
         for i in range(last_updated_task, num_tasks + 1):
             node = f"x{i}"
